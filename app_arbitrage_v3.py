@@ -307,19 +307,19 @@ HTML_PAGE = """
     <meta name="description" content="Professional multi-DEX arbitrage analyzer with real-time price spread detection, liquidity analysis, and multi-DEX coverage.">
     <meta name="keywords" content="arbitrage, dex, crypto, trading, fastapi, dexscreener, memecoin, solana, ethereum, base">
     <meta name="robots" content="index, follow">
-    <link rel="canonical" href="https://arbitrage-analyzer.vercel.app/">
+    <link rel="canonical" href="https://dex-arbitrage-pro.vercel.app/">
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://arbitrage-analyzer.vercel.app/">
+    <meta property="og:url" content="https://dex-arbitrage-pro.vercel.app/">
     <meta property="og:title" content="Arbitrage Analyzer Pro — Multi-DEX Arbitrage Tool">
     <meta property="og:description" content="Professional multi-DEX arbitrage analyzer with real-time price spread detection, liquidity analysis, and multi-DEX coverage.">
-    <meta property="og:image" content="https://arbitrage-analyzer.vercel.app/assets/img/og-card.jpg">
+    <meta property="og:image" content="https://dex-arbitrage-pro.vercel.app/assets/img/og-card.jpg">
     <meta property="og:site_name" content="Arbitrage Analyzer Pro">
     <meta property="og:locale" content="en_US">
     <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://arbitrage-analyzer.vercel.app/">
+    <meta property="twitter:url" content="https://dex-arbitrage-pro.vercel.app/">
     <meta property="twitter:title" content="Arbitrage Analyzer Pro — Multi-DEX Arbitrage Tool">
     <meta property="twitter:description" content="Professional multi-DEX arbitrage analyzer with real-time price spread detection, liquidity analysis, and multi-DEX coverage.">
-    <meta property="twitter:image" content="https://arbitrage-analyzer.vercel.app/assets/img/og-card.jpg">
+    <meta property="twitter:image" content="https://dex-arbitrage-pro.vercel.app/assets/img/og-card.jpg">
     <link rel="icon" type="image/x-icon" href="/assets/icons/favicon.ico">
     <link rel="icon" type="image/png" sizes="16x16" href="/assets/icons/favicon-16x16.png">
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32x32.png">
@@ -340,8 +340,8 @@ HTML_PAGE = """
       "@graph": [
         {
           "@type": "WebSite",
-          "@id": "https://arbitrage-analyzer.vercel.app/#website",
-          "url": "https://arbitrage-analyzer.vercel.app/",
+          "@id": "https://dex-arbitrage-pro.vercel.app/#website",
+          "url": "https://dex-arbitrage-pro.vercel.app/",
           "name": "Arbitrage Analyzer Pro",
           "description": "Professional multi-DEX arbitrage analyzer with real-time price spread detection, liquidity analysis, and multi-DEX coverage.",
           "inLanguage": "en"
@@ -351,7 +351,7 @@ HTML_PAGE = """
           "name": "Arbitrage Analyzer Pro",
           "applicationCategory": "FinanceApplication",
           "operatingSystem": "Web",
-          "url": "https://arbitrage-analyzer.vercel.app/",
+          "url": "https://dex-arbitrage-pro.vercel.app/",
           "description": "Real-time multi-DEX arbitrage analysis: price spread detection, liquidity and volume analysis across Solana, Ethereum and Base in real time.",
           "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
           "featureList": "Multi-DEX arbitrage, real-time price spreads, liquidity analysis, Solana/Ethereum/Base support, auto-update 5 min",
@@ -773,7 +773,7 @@ async def favicon_ico():
 @app.get("/sitemap.xml")
 async def sitemap():
     from fastapi.responses import Response
-    base = "https://arbitrage-analyzer.vercel.app"
+    base = "https://dex-arbitrage-pro.vercel.app"
     xml = ('<?xml version="1.0" encoding="UTF-8"?>\n'
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
            '  <url><loc>' + base + '/</loc><lastmod>2026-08-28</lastmod>'
@@ -784,7 +784,7 @@ async def sitemap():
 @app.get("/robots.txt")
 async def robots():
     from fastapi.responses import PlainTextResponse
-    txt = "User-agent: *\nAllow: /\nSitemap: https://arbitrage-analyzer.vercel.app/sitemap.xml\n"
+    txt = "User-agent: *\nAllow: /\nSitemap: https://dex-arbitrage-pro.vercel.app/sitemap.xml\n"
     return PlainTextResponse(txt)
 
 @app.get("/api/arbitrage")
