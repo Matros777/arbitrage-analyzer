@@ -11,5 +11,10 @@
       "src": "/(.*)",
       "dest": "app_arbitrage_v3.py"
     }
-  ]
+  ],
+  "functions": {
+    "app_arbitrage_v3.py": {
+      "runtime": "python3.12"
+    }
+  }
 }
