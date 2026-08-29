@@ -1,5 +1,6 @@
 import os
 import json
+import statistics
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -13,9 +14,9 @@ app.mount("/assets", StaticFiles(directory="assets", html=True), name="assets")
 MIN_LIQUIDITY = 50000
 MIN_VOLUME = 5000
 MIN_PRICE = 0.00000001
+MAX_PRICE_DEVIATION = 3.0  # drop pools whose price deviates >3x from median (clones/glitches)
 
 def get_dex_data(symbol: str) -> Dict[str, Any]:
-    results = {}
     try:
         with httpx.Client(timeout=15.0) as client:
             response = client.get(
@@ -26,6 +27,8 @@ def get_dex_data(symbol: str) -> Dict[str, Any]:
             if not pairs:
                 return {"error": f"Token {symbol} not found"}
             sym_u = symbol.upper()
+            candidates = []
+            all_token_addrs = set()
             for pair in pairs:
                 base = pair.get("baseToken", {})
                 quote = pair.get("quoteToken", {})
@@ -33,6 +36,13 @@ def get_dex_data(symbol: str) -> Dict[str, Any]:
                 qs = quote.get("symbol", "").upper()
                 if bs != sym_u and qs != sym_u:
                     continue
+                # record the address of the token that actually matches the symbol
+                if bs == sym_u:
+                    all_token_addrs.add(base.get("address", ""))
+                    target_addr = base.get("address", "")
+                else:
+                    all_token_addrs.add(quote.get("address", ""))
+                    target_addr = quote.get("address", "")
                 price_usd = float(pair.get("priceUsd", 0) or 0)
                 price_native = float(pair.get("priceNative", 0) or 0)
                 liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
@@ -51,24 +61,74 @@ def get_dex_data(symbol: str) -> Dict[str, Any]:
                         continue
                 if target_price <= MIN_PRICE:
                     continue
-                dex_id = pair.get("dexId", "unknown")
-                if dex_id not in results:
-                    results[dex_id] = []
-                results[dex_id].append({
-                    "price_usd": target_price,
-                    "liquidity_usd": liquidity,
-                    "volume_24h_usd": volume,
+                candidates.append({
+                    "token_address": target_addr,
+                    "dex_id": pair.get("dexId", "unknown"),
+                    "target_price": target_price,
+                    "liquidity": liquidity,
+                    "volume": volume,
                     "price_change_1h": float(pair.get("priceChange", {}).get("h1", 0)),
                     "price_change_24h": float(pair.get("priceChange", {}).get("h24", 0)),
                     "base_token": base.get("symbol", ""),
                     "quote_token": quote.get("symbol", ""),
                     "pair_address": pair.get("pairAddress", ""),
                 })
+            if not candidates:
+                return {"error": f"No valid pools found for {symbol}"}
+            # canonical token = the address traded on the most DEXs/pools.
+            # Real tokens have broad coverage; clones usually appear in only 1-2 pools,
+            # so this picks the genuine token instead of a high-volume clone.
+            addr_pools: Dict[str, list] = {}
+            addr_vol: Dict[str, float] = {}
+            for c in candidates:
+                addr_pools.setdefault(c["token_address"], []).append(c)
+                addr_vol[c["token_address"]] = addr_vol.get(c["token_address"], 0) + c["volume"]
+            canonical_addr = max(
+                addr_pools.keys(),
+                key=lambda a: (len(addr_pools[a]), addr_vol[a]),
+            )
+            kept = addr_pools[canonical_addr]
+            # median-based outlier filter: drops clones/glitches with a wild price
+            prices = [c["target_price"] for c in kept]
+            median_price = statistics.median(prices)
+            deviation_flag = False
+            if len(kept) >= 3:
+                lo = median_price / MAX_PRICE_DEVIATION
+                hi = median_price * MAX_PRICE_DEVIATION
+                before = len(kept)
+                kept = [c for c in kept if lo <= c["target_price"] <= hi]
+                deviation_flag = len(kept) < before
+            if not kept:
+                return {"error": f"No valid pools found for {symbol}"}
+            results = {}
+            for c in kept:
+                dex_id = c["dex_id"]
+                results.setdefault(dex_id, []).append({
+                    "price_usd": c["target_price"],
+                    "liquidity_usd": c["liquidity"],
+                    "volume_24h_usd": c["volume"],
+                    "price_change_1h": c["price_change_1h"],
+                    "price_change_24h": c["price_change_24h"],
+                    "base_token": c["base_token"],
+                    "quote_token": c["quote_token"],
+                    "pair_address": c["pair_address"],
+                    "token_address": c["token_address"],
+                })
             for dex in results:
                 results[dex].sort(key=lambda x: x["liquidity_usd"], reverse=True)
-            if not results:
-                return {"error": f"No valid pools found for {symbol}"}
-            return results
+            validation = {
+                "symbol": symbol,
+                "canonical_address": canonical_addr,
+                "distinct_token_addresses": sorted(a for a in all_token_addrs if a),
+                "distinct_address_count": len([a for a in all_token_addrs if a]),
+                "pools_considered": len(candidates),
+                "pools_canonical": len(kept),
+                "median_price": median_price,
+                "price_deviation_filtered": deviation_flag,
+                "note": "Prices compared only within the highest-volume token address. "
+                        "Multiple distinct addresses sharing the same ticker indicate clones/scams.",
+            }
+            return {"pools": results, "validation": validation}
     except Exception as e:
         return {"error": f"Failed to fetch data: {str(e)}"}
 
@@ -209,8 +269,9 @@ def generate_explanation_ru(metrics: Dict[str, Any], symbol: str) -> str:
 def calculate_arbitrage_metrics(dex_data: Dict[str, Any], symbol: str) -> Dict[str, Any]:
     if "error" in dex_data:
         return {"error": dex_data["error"]}
+    pools = dex_data.get("pools", dex_data)
     all_pairs = []
-    for dex, pairs in dex_data.items():
+    for dex, pairs in pools.items():
         for pair in pairs:
             all_pairs.append({
                 "dex": dex,
@@ -220,6 +281,7 @@ def calculate_arbitrage_metrics(dex_data: Dict[str, Any], symbol: str) -> Dict[s
                 "change_1h": pair["price_change_1h"],
                 "change_24h": pair["price_change_24h"],
                 "address": pair.get("pair_address", ""),
+                "token_address": pair.get("token_address", ""),
                 "quote": pair.get("quote_token", ""),
                 "base": pair.get("base_token", ""),
             })
@@ -305,6 +367,7 @@ def calculate_arbitrage_metrics(dex_data: Dict[str, Any], symbol: str) -> Dict[s
     }
     metrics["explanation_en"] = generate_explanation(metrics, symbol)
     metrics["explanation_ru"] = generate_explanation_ru(metrics, symbol)
+    metrics["validation"] = dex_data.get("validation", {})
     return metrics
 
 HTML_PAGE = """
@@ -568,6 +631,17 @@ HTML_PAGE = """
         <div id="error" class="error" style="display:none;"></div>
         <div id="results" style="display:none;"></div>
         <div class="filter-info">✓ Filtered: liquidity > $50K, volume > $5K, price > 0</div>
+
+        <div class="scam-safety" style="margin:18px 0 32px;">
+            <div class="scam-safety-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <span class="scam-safety-title" style="font-weight:800;color:#fbbf24;font-size:15px;">⚠️ Scam Safety</span>
+                <div class="lang-toggle">
+                    <button data-lang="en" class="active" onclick="updateWarning('en')">🇬🇧 EN</button>
+                    <button data-lang="ru" onclick="updateWarning('ru')">🇷🇺 RU</button>
+                </div>
+            </div>
+            <div class="scam-safety-box" id="warningBox" style="margin-top:14px;padding:14px;background:rgba(255,180,0,0.05);border:1px solid rgba(251,191,36,0.35);border-radius:10px;font-size:13px;line-height:1.6;color:#e8e0d8;font-family:'Courier New', monospace;"></div>
+        </div>
     </div>
 
     <script>
@@ -611,16 +685,50 @@ HTML_PAGE = """
         function updateExplanation(lang) {
             const box = document.getElementById('explanationBox');
             const pg = document.getElementById('poolGuideBox');
-            const btns = document.querySelectorAll('.lang-toggle button');
+            const btns = document.querySelectorAll('.explanation-header .lang-toggle button');
             btns.forEach(b => b.classList.remove('active'));
             if (lang === 'en') {
                 if (box) box.textContent = explanationEn;
                 if (pg) pg.innerHTML = poolGuideEn;
-                document.querySelector('.lang-toggle button[data-lang="en"]')?.classList.add('active');
+                document.querySelector('.explanation-header .lang-toggle button[data-lang="en"]')?.classList.add('active');
             } else {
                 if (box) box.textContent = explanationRu;
                 if (pg) pg.innerHTML = poolGuideRu;
-                document.querySelector('.lang-toggle button[data-lang="ru"]')?.classList.add('active');
+                document.querySelector('.explanation-header .lang-toggle button[data-lang="ru"]')?.classList.add('active');
+            }
+        }
+
+        const warningEn = `⚠️ <b>SCAM WARNING — always verify the token contract before trading.</b><br><br>
+Our scanner matches tokens by ticker (e.g. "WBTC"), but <b>anyone can deploy a fake token with the same ticker</b>. Before swapping, open the pool and confirm the token's <b>contract address</b> against the official project source or a trusted explorer (DexScreener / CoinGecko). Never trade an address you have not verified.<br><br>
+<b>How this scanner protects you:</b><br>
+<ul style="margin:6px 0 0 18px;padding:0;">
+<li><b>Single-asset comparison</b> — prices are compared only within one canonical token contract (the one traded across the most pools/DEXs). Different contracts sharing the same ticker are never cross-compared, so clone tokens cannot fabricate an arbitrage.</li>
+<li><b>Outlier filtering</b> — any pool whose price deviates more than 3× from the median is dropped, removing broken or manipulated prices.</li>
+<li><b>Transparency</b> — the API exposes <code>distinct_address_count</code> (how many different contracts hide behind the ticker) and the canonical address, so you can see whether clones are present.</li>
+</ul><br>
+This is a screening aid, <b>not financial advice</b>. Do your own verification.`;
+
+        const warningRu = `⚠️ <b>ВНИМАНИЕ О СКАМАХ — всегда проверяйте адрес контракта токена перед сделкой.</b><br><br>
+Наш сканер ищет токены по тикеру (например, «WBTC»), но <b>любой может выпустить фейковый токен с тем же тикером</b>. Перед свопом откройте пул и сверьте <b>адрес контракта</b> токена с официальным источником проекта или надёжным обозревателем (DexScreener / CoinGecko). Не торгуйте адресом, который не проверили.<br><br>
+<b>Как сканер вас страхует:</b><br>
+<ul style="margin:6px 0 0 18px;padding:0;">
+<li><b>Сравнение в рамках одного актива</b> — цены сравниваются только внутри одного канонического контракта токена (того, что торгуется на бóльшем числе пулов/DEX). Разные контракты с одним тикером никогда не сравниваются между собой, поэтому клоны не могут создать ложный арбитраж.</li>
+<li><b>Фильтр выбросов</b> — любой пул, цена которого отклоняется более чем в 3 раза от медианной, отбрасывается, убирая сломанные или манипулированные цены.</li>
+<li><b>Прозрачность</b> — ответ API показывает <code>distinct_address_count</code> (сколько разных контрактов прячется за тикером) и канонический адрес, чтобы вы видели, есть ли клоны.</li>
+</ul><br>
+Это вспомогательный фильтр, <b>не финансовый совет</b>. Проверяйте всё сами.`;
+
+        function updateWarning(lang) {
+            const box = document.getElementById('warningBox');
+            if (!box) return;
+            const btns = document.querySelectorAll('.scam-safety .lang-toggle button');
+            btns.forEach(b => b.classList.remove('active'));
+            if (lang === 'en') {
+                box.innerHTML = warningEn;
+                document.querySelector('.scam-safety .lang-toggle button[data-lang="en"]')?.classList.add('active');
+            } else {
+                box.innerHTML = warningRu;
+                document.querySelector('.scam-safety .lang-toggle button[data-lang="ru"]')?.classList.add('active');
             }
         }
 
@@ -783,6 +891,7 @@ HTML_PAGE = """
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') analyze();
         });
+        updateWarning('en');
     </script>
 </body>
 </html>
