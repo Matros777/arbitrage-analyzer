@@ -22,38 +22,46 @@ def get_dex_data(symbol: str) -> Dict[str, Any]:
                 f"https://api.dexscreener.com/latest/dex/search?q={symbol}"
             )
             data = response.json()
-            if not data.get("pairs"):
+            pairs = data.get("pairs")
+            if not pairs:
                 return {"error": f"Token {symbol} not found"}
-            base_addresses = {}
-            for pair in data["pairs"]:
+            sym_u = symbol.upper()
+            for pair in pairs:
                 base = pair.get("baseToken", {})
-                addr = base.get("address", "")
-                if addr:
-                    liquidity = float(pair.get("liquidity", {}).get("usd", 0))
-                    if addr not in base_addresses or liquidity > base_addresses[addr]:
-                        base_addresses[addr] = liquidity
-            top_addresses = sorted(base_addresses.items(), key=lambda x: x[1], reverse=True)[:3]
-            top_addresses_set = {addr for addr, _ in top_addresses}
-            for pair in data["pairs"]:
-                price = float(pair.get("priceUsd", 0))
-                liquidity = float(pair.get("liquidity", {}).get("usd", 0))
-                volume = float(pair.get("volume", {}).get("h24", 0))
-                if price <= MIN_PRICE or liquidity < MIN_LIQUIDITY or volume < MIN_VOLUME:
+                quote = pair.get("quoteToken", {})
+                bs = base.get("symbol", "").upper()
+                qs = quote.get("symbol", "").upper()
+                if bs != sym_u and qs != sym_u:
                     continue
-                base_addr = pair.get("baseToken", {}).get("address", "")
-                if base_addr not in top_addresses_set:
+                price_usd = float(pair.get("priceUsd", 0) or 0)
+                price_native = float(pair.get("priceNative", 0) or 0)
+                liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+                volume = float(pair.get("volume", {}).get("h24", 0) or 0)
+                if liquidity < MIN_LIQUIDITY or volume < MIN_VOLUME:
+                    continue
+                if bs == sym_u and qs == sym_u:
+                    continue  # self pair
+                # price of the TARGET token in USD (base or quote side)
+                if bs == sym_u:
+                    target_price = price_usd
+                else:
+                    if price_native > 0:
+                        target_price = price_usd / price_native
+                    else:
+                        continue
+                if target_price <= MIN_PRICE:
                     continue
                 dex_id = pair.get("dexId", "unknown")
                 if dex_id not in results:
                     results[dex_id] = []
                 results[dex_id].append({
-                    "price_usd": price,
+                    "price_usd": target_price,
                     "liquidity_usd": liquidity,
                     "volume_24h_usd": volume,
                     "price_change_1h": float(pair.get("priceChange", {}).get("h1", 0)),
                     "price_change_24h": float(pair.get("priceChange", {}).get("h24", 0)),
-                    "base_token": pair.get("baseToken", {}).get("symbol", ""),
-                    "quote_token": pair.get("quoteToken", {}).get("symbol", ""),
+                    "base_token": base.get("symbol", ""),
+                    "quote_token": quote.get("symbol", ""),
                     "pair_address": pair.get("pairAddress", ""),
                 })
             for dex in results:
