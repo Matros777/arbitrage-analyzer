@@ -211,6 +211,9 @@ def calculate_arbitrage_metrics(dex_data: Dict[str, Any], symbol: str) -> Dict[s
                 "volume": pair["volume_24h_usd"],
                 "change_1h": pair["price_change_1h"],
                 "change_24h": pair["price_change_24h"],
+                "address": pair.get("pair_address", ""),
+                "quote": pair.get("quote_token", ""),
+                "base": pair.get("base_token", ""),
             })
     if not all_pairs:
         return {"error": "No valid trading pairs found"}
@@ -568,6 +571,8 @@ HTML_PAGE = """
 
         let explanationEn = '';
         let explanationRu = '';
+        let poolGuideEn = '';
+        let poolGuideRu = '';
         let currentSymbol = '';
         let updateInterval = null;
         const UPDATE_INTERVAL_MS = 300000;
@@ -577,16 +582,36 @@ HTML_PAGE = """
         function showError(msg) { errorDiv.textContent = msg; errorDiv.style.display = 'block'; resultsDiv.style.display = 'none'; }
         function showResults(html) { resultsDiv.innerHTML = html; resultsDiv.style.display = 'block'; errorDiv.style.display = 'none'; }
 
+        function buildPoolGuide(lang, data) {
+            const pairs = (data && data.all_pairs) || [];
+            const buyAddr = pairs.length ? pairs.reduce((a,b)=>a.price<b.price?a:b).address : '—';
+            const sellAddr = pairs.length ? pairs.reduce((a,b)=>a.price>b.price?a:b).address : '—';
+            if (lang === 'ru') {
+                return `<strong>🔎 Как найти и совершить сделку:</strong> у каждой пары в колонке <em>Pool</em> показан адрес пула. Скопируй его и вставь в поиск на DexScreener (dexscreener.com) или в кошелёк/агрегатор, чтобы увидеть этот пул и обменять токен. На одной бирже монета бывает на <strong>разных пулах</strong> с разной ценой — именно поэтому важно выбрать конкретный пул (Buy = дешёвый, Sell = дорогой).` +
+                    `<ul style="margin:6px 0 0 18px;padding:0">` +
+                    `<li><strong>Buy (купить)</strong> — пул с минимальной ценой: ${buyAddr}</li>` +
+                    `<li><strong>Sell (продать)</strong> — пул с максимальной ценой: ${sellAddr}</li>` +
+                    `</ul>`;
+            }
+            return `<strong>🔎 How to find and execute a trade:</strong> each pair shows the pool address in the <em>Pool</em> column. Copy it and paste into the search on DexScreener (dexscreener.com) or into your wallet/aggregator to view this pool and swap the token. The same token can trade on <strong>different pools</strong> with different prices on a single exchange — that is exactly why it is important to pick the specific pool (Buy = cheaper, Sell = more expensive).` +
+                `<ul style="margin:6px 0 0 18px;padding:0">` +
+                `<li><strong>Buy</strong> — pool with the lowest price: ${buyAddr}</li>` +
+                `<li><strong>Sell</strong> — pool with the highest price: ${sellAddr}</li>` +
+                `</ul>`;
+        }
+
         function updateExplanation(lang) {
             const box = document.getElementById('explanationBox');
-            if (!box) return;
+            const pg = document.getElementById('poolGuideBox');
             const btns = document.querySelectorAll('.lang-toggle button');
             btns.forEach(b => b.classList.remove('active'));
             if (lang === 'en') {
-                box.textContent = explanationEn;
+                if (box) box.textContent = explanationEn;
+                if (pg) pg.innerHTML = poolGuideEn;
                 document.querySelector('.lang-toggle button[data-lang="en"]')?.classList.add('active');
             } else {
-                box.textContent = explanationRu;
+                if (box) box.textContent = explanationRu;
+                if (pg) pg.innerHTML = poolGuideRu;
                 document.querySelector('.lang-toggle button[data-lang="ru"]')?.classList.add('active');
             }
         }
@@ -612,6 +637,8 @@ HTML_PAGE = """
 
                 explanationEn = data.explanation_en || '';
                 explanationRu = data.explanation_ru || '';
+                poolGuideEn = buildPoolGuide('en', data);
+                poolGuideRu = buildPoolGuide('ru', data);
 
                 let html = '<div class="grid">';
 
@@ -663,6 +690,7 @@ HTML_PAGE = """
                                 <th>Liquidity</th>
                                 <th>24h Volume</th>
                                 <th>1h %</th>
+                                <th>Pool (address)</th>
                             </tr>
                             ${data.all_pairs.map(p => `
                                 <tr>
@@ -671,10 +699,11 @@ HTML_PAGE = """
                                     <td>$${(p.liquidity/1000).toFixed(0)}K</td>
                                     <td>$${(p.volume/1000).toFixed(0)}K</td>
                                     <td class="${p.change_1h > 0 ? 'best' : 'worst'}">${p.change_1h > 0 ? '+' : ''}${p.change_1h.toFixed(2)}%</td>
+                                    <td style="font-family:monospace;font-size:11px;word-break:break-all;max-width:190px;"><a href="https://dexscreener.com/search?q=${p.address}" target="_blank" rel="noopener" title="${p.address}" style="color:#7dd3fc;text-decoration:none;">${p.address ? p.address.slice(0,16) + '…' : (p.dex + ' pool')}</a></td>
                                 </tr>
                             `).join('')}
                         </table>
-                    </div>
+                        </div>
                 `;
 
                 if (explanationEn || explanationRu) {
@@ -688,6 +717,7 @@ HTML_PAGE = """
                                 </div>
                             </div>
                             <div class="explanation-box" id="explanationBox">${explanationEn}</div>
+                            <div class="pool-guide" id="poolGuideBox" style="margin-top:14px;padding:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;font-size:13px;line-height:1.6;color:#d0c8c0;font-family:'Courier New', monospace;">${poolGuideEn}</div>
                         </div>
                     `;
                 }
@@ -719,6 +749,8 @@ HTML_PAGE = """
                             }
                             explanationEn = data.explanation_en || '';
                             explanationRu = data.explanation_ru || '';
+                            poolGuideEn = buildPoolGuide('en', data);
+                            poolGuideRu = buildPoolGuide('ru', data);
                             updateExplanation(document.querySelector('.lang-toggle button.active')?.dataset.lang || 'en');
                             const stats = data.price_stats;
                             const priceCards = document.querySelectorAll('.card .value.gold');
