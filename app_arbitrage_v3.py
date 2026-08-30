@@ -1,7 +1,10 @@
 import os
 import json
+import time
+import asyncio
 import statistics
 import httpx
+from collections import defaultdict
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -485,7 +488,7 @@ HTML_PAGE = """
             font-weight: 500;
             outline: none;
             transition: all 0.3s;
-            min-width: 200px;
+            min-width: 150px;
         }
         .search-card input:focus { border-color: #f5c842; box-shadow: 0 0 20px rgba(245,200,66,0.1); }
         .search-card input::placeholder { color: rgba(245,240,235,0.3); }
@@ -625,6 +628,7 @@ HTML_PAGE = """
         <div class="search-card">
             <input type="text" id="symbolInput" placeholder="Enter token symbol: PEPE, DOGE, SHIB...">
             <button id="analyzeBtn">🔍 Analyze</button>
+            <button id="scanBtn" type="button">⚡ Auto-Scan</button>
         </div>
 
         <div id="loading" class="loading" style="display:none;"><div class="spinner"></div> Loading data from all DEX...</div>
@@ -647,6 +651,7 @@ HTML_PAGE = """
     <script>
         const input = document.getElementById('symbolInput');
         const btn = document.getElementById('analyzeBtn');
+        const scanBtn = document.getElementById('scanBtn');
         const resultsDiv = document.getElementById('results');
         const loadingDiv = document.getElementById('loading');
         const errorDiv = document.getElementById('error');
@@ -887,10 +892,43 @@ This is a screening aid, <b>not financial advice</b>. Do your own verification.`
             }, UPDATE_INTERVAL_MS);
         }
 
+        async function autoScan() {
+            showLoading();
+            try {
+                const res = await fetch('/api/scan');
+                const data = await res.json();
+                hideLoading();
+                if (data.error) { showError(data.error); return; }
+                const deals = data.deals || [];
+                if (!deals.length) { showError('No arbitrage deals found right now'); return; }
+                let html = '<div class="card" style="grid-column:1/-1;"><h3>⚡ Auto-Discovered Arbitrage Deals (' + deals.length + ')</h3>';
+                html += '<table class="dex-table"><tr><th>#</th><th>Token</th><th>Spread</th><th>Min Price</th><th>Max Price</th><th>DEXs</th><th>Liquidity</th></tr>';
+                deals.forEach((d, i) => {
+                    const dexs = d.pairs.map(p => p.dex).join(', ');
+                    html += '<tr><td>' + (i+1) + '</td>' +
+                        '<td><strong>' + d.symbol + '</strong></td>' +
+                        '<td class="best">+' + d.spread_percent.toFixed(2) + '%</td>' +
+                        '<td>$' + d.min_price.toFixed(8) + '</td>' +
+                        '<td>$' + d.max_price.toFixed(8) + '</td>' +
+                        '<td>' + d.dex_count + '</td>' +
+                        '<td>$' + (d.total_liquidity/1000).toFixed(0) + 'K</td>' +
+                        '<td style="font-size:11px;">' + dexs + '</td></tr>';
+                });
+                html += '</table></div>';
+                showResults(html);
+                if (updateInterval) { clearInterval(updateInterval); updateInterval = null; }
+                currentSymbol = '';
+            } catch (e) {
+                hideLoading();
+                showError('Connection error');
+            }
+        }
+
         btn.addEventListener('click', analyze);
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') analyze();
         });
+        scanBtn.addEventListener('click', autoScan);
         updateWarning('en');
     </script>
 </body>
@@ -943,6 +981,118 @@ async def arbitrage_analysis(symbol: str):
         return dex_data
     result = calculate_arbitrage_metrics(dex_data, symbol)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Auto-scanner: scan top-liquidity pairs across major networks on DexScreener,
+# group by token, detect cross-DEX arbitrage spreads, filter scam/outliers.
+# ---------------------------------------------------------------------------
+SCAN_QUERIES = ["ETH", "WETH", "USDC", "USDT", "WBTC", "BNB", "SOL", "ARB", "OP",
+               "MATIC", "PEPE", "DOGE", "SHIB", "WIF", "BONK", "FLOKI", "TURBO",
+               "DEGEN", "JUP", "PYTH", "ENA", "W", "BRETT", "POPCAT", "MOG",
+               "NEIRO", "SPX", "GIGA", "TIA", "SEI"]
+STABLES = {"USDC", "USDT", "DAI", "BUSD", "USDE", "FDUSD", "USDS", "TUSD", "USDD", "LUSD", "FRAX", "USDG", "PYUSD"}
+_scan_cache = {"ts": 0.0, "data": None}
+SCAN_CACHE_TTL = 60.0
+_scan_sem = asyncio.Semaphore(8)
+
+
+async def _fetch_search(client, q):
+    async with _scan_sem:
+        try:
+            r = await client.get(
+                f"https://api.dexscreener.com/latest/dex/search?q={q}",
+                headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
+            )
+            d = r.json()
+            return d.get("pairs") or []
+        except Exception:
+            return []
+
+
+async def scan_deals(min_liquidity=100000, min_spread=0.5, max_deals=50):
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        tasks = [_fetch_search(client, q) for q in SCAN_QUERIES]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    pairs = []
+    for r in results:
+        if isinstance(r, list):
+            pairs.extend(r)
+    groups = defaultdict(list)
+    for p in pairs:
+        base = p.get("baseToken", {}) or {}
+        addr = (base.get("address") or "").lower()
+        sym = (base.get("symbol") or "").upper()
+        if not addr or not sym:
+            continue
+        liq = float((p.get("liquidity") or {}).get("usd", 0) or 0)
+        if liq < min_liquidity:
+            continue
+        vol = float((p.get("volume") or {}).get("h24", 0) or 0)
+        if vol < MIN_VOLUME:
+            continue
+        groups[(addr, sym)].append(p)
+    deals = []
+    for (addr, sym), plist in groups.items():
+        if sym in STABLES:
+            plist = [p for p in plist if 0.97 <= float(p.get("priceUsd", 0) or 0) <= 1.03]
+        if len(plist) < 2:
+            continue
+        prices = []
+        for p in plist:
+            pu = float(p.get("priceUsd", 0) or 0)
+            if pu > 0:
+                prices.append(pu)
+        if len(prices) < 2:
+            continue
+        mn, mx = min(prices), max(prices)
+        median = statistics.median(prices)
+        if mx > median * 3 or mn < median / 3:
+            continue
+        spread = (mx - mn) / mn * 100
+        if spread < min_spread:
+            continue
+        total_liq = sum(float((p.get("liquidity") or {}).get("usd", 0) or 0) for p in plist)
+        total_vol = sum(float((p.get("volume") or {}).get("h24", 0) or 0) for p in plist)
+        deals.append({
+            "symbol": sym,
+            "address": addr,
+            "spread_percent": round(spread, 3),
+            "min_price": mn,
+            "max_price": mx,
+            "dex_count": len(plist),
+            "total_liquidity": total_liq,
+            "total_volume": total_vol,
+            "pairs": [
+                {
+                    "dex": p.get("dexId", "unknown"),
+                    "price": float(p.get("priceUsd", 0) or 0),
+                    "liquidity": float((p.get("liquidity") or {}).get("usd", 0) or 0),
+                    "volume": float((p.get("volume") or {}).get("h24", 0) or 0),
+                    "chain": p.get("chainId", ""),
+                }
+                for p in plist
+            ],
+        })
+    deals.sort(key=lambda x: (x["spread_percent"], x["total_liquidity"]), reverse=True)
+    return deals[:max_deals]
+
+
+@app.get("/api/scan")
+async def auto_scan():
+    global _scan_cache
+    now = time.time()
+    if _scan_cache["data"] is not None and (now - _scan_cache["ts"]) < SCAN_CACHE_TTL:
+        return _scan_cache["data"]
+    deals = await scan_deals()
+    out = {
+        "deals": deals,
+        "count": len(deals),
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    _scan_cache = {"ts": now, "data": out}
+    return out
+
 
 @app.get("/health")
 async def health():
