@@ -165,7 +165,7 @@ def generate_explanation(metrics: Dict[str, Any], symbol: str) -> str:
         lines.append(f"     • Sell on {best_dex} at ${max_price:.8f}")
         lines.append(f"     • Potential margin: {spread:.2f}%")
         trade_size = min(1000, total_liq * 0.01)
-        profit = (max_price - min_price) * trade_size
+        profit = trade_size * (max_price - min_price) / min_price
         lines.append(f"     • Estimated profit from ${trade_size:.0f}: ${profit:.2f}")
         if total_liq > 2000000:
             lines.append(f"     • Risk: LOW")
@@ -232,7 +232,7 @@ def generate_explanation_ru(metrics: Dict[str, Any], symbol: str) -> str:
         lines.append(f"     • Продавай на {best_dex} по ${max_price:.8f}")
         lines.append(f"     • Потенциальная маржа: {spread:.2f}%")
         trade_size = min(1000, total_liq * 0.01)
-        profit = (max_price - min_price) * trade_size
+        profit = trade_size * (max_price - min_price) / min_price
         lines.append(f"     • Примерная прибыль с ${trade_size:.0f}: ${profit:.2f}")
         if total_liq > 2000000:
             lines.append(f"     • Риск: НИЗКИЙ")
@@ -314,7 +314,7 @@ def calculate_arbitrage_metrics(dex_data: Dict[str, Any], symbol: str) -> Dict[s
             "type": "🚀 ARBITRAGE OPPORTUNITY",
             "message": f"Buy on {worst_dex['dex']} at ${worst_dex['price']:.8f}, Sell on {best_dex['dex']} at ${best_dex['price']:.8f}",
             "profit_margin": f"{spread_percent:.2f}%",
-            "estimated_profit": f"${(spread * min(1000, total_liquidity * 0.01)):.2f}"
+            "estimated_profit": f"${(min(1000, total_liquidity * 0.01) * spread / min_price):.2f}"
         })
     elif spread_percent > 0.5:
         recommendations.append({
