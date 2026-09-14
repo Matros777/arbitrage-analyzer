@@ -631,12 +631,12 @@ HTML_PAGE = """
             <button id="scanBtn" type="button">⚡ Auto-Scan</button>
         </div>
 
-        <!-- ======= AD 300x250 (Adz2You // adz2you.xyz // fixed-угол) ======= -->
+        <!--[ 300x250 Ad Tag ( dex-arbitrage-pro.vercel.app ) - Adz2You // adz2you.xyz // ]-->
 <div style="z-index:99999;position:fixed;bottom:10px;right:10px">
 <a style="position:absolute;top:-30px;left:-30px" href="#" onclick="this.parentNode.style.display='none';"><img src="https://adz2you.xyz/imges/X.png" width="30" height="30" title="Close" /></a>
-<iframe src="//ptpss.online/serve/show.php?a=1200&b=300x250" width="300" height="250" frameBorder="0" scrolling="no" marginwidth="0" marginheight="0"></iframe>
+<iframe src="//ptpss.online/serve/show.php?a=1201&b=300x250" width="300" height="250" frameBorder="0" scrolling="no" marginwidth="0" marginheight="0"></iframe>
 </div>
-<!-- ======= End Adz2You // adz2you.xyz // ======= -->
+<!--[ End of the Ad Tag - Adz2You // adz2you.xyz // ]-->
 <div id="loading" class="loading" style="display:none;"><div class="spinner"></div> Loading data from all DEX...</div>
         <div id="error" class="error" style="display:none;"></div>
         <div id="results" style="display:none;"></div>
