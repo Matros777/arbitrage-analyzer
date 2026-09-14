@@ -631,6 +631,20 @@ HTML_PAGE = """
             <button id="scanBtn" type="button">⚡ Auto-Scan</button>
         </div>
 
+        <!-- ======= AD 300x250 (Adz2You // adz2you.xyz // inline между поиском и результатами) ======= -->
+        <div class="mx-auto w-full max-w-xl px-4 py-6 flex justify-center" style="padding-top:0;">
+            <div class="rounded-xl overflow-hidden border border-white/10 bg-panel/40 p-2" style="box-shadow:0 0 30px rgba(245,200,66,.08)">
+                <iframe src="//ptpss.online/serve/show.php?a=1200&b=300x250" width="300" height="250" frameBorder="0" scrolling="no" marginwidth="0" marginheight="0"></iframe>
+            </div>
+        </div>
+        <!-- ======= End Adz2You // adz2you.xyz // ======= -->
+        <!-- ======= AD 300x250 (Adz2You // adz2you.xyz, между поиском и результатами) ======= -->
+        <div class="mx-auto w-full max-w-xl px-4 py-6 flex justify-center">
+            <div class="rounded-xl overflow-hidden border border-white/10 bg-panel/60 p-2" style="box-shadow:0 0 30px rgba(245,200,66,.08)">
+                <iframe src="//ptpss.online/serve/show.php?a=1200&b=300x250" width="300" height="250" frameBorder="0" scrolling="no" marginwidth="0" marginheight="0"></iframe>
+            </div>
+        </div>
+        <!-- ======= End Adz2You ======= -->
         <div id="loading" class="loading" style="display:none;"><div class="spinner"></div> Loading data from all DEX...</div>
         <div id="error" class="error" style="display:none;"></div>
         <div id="results" style="display:none;"></div>
