@@ -5,3 +5,6 @@ venv/
 .env
 .git/
 .DS_Store
+
+# backups created by insertion scripts
+*.bak*
